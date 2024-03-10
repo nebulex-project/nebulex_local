@@ -3,13 +3,13 @@ defmodule Nebulex.Adapters.LocalDuplicateKeysTest do
 
   defmodule ETS do
     use Nebulex.Cache,
-      otp_app: :nebulex_adapters_local,
+      otp_app: :nebulex_local,
       adapter: Nebulex.Adapters.Local
   end
 
   defmodule Shards do
     use Nebulex.Cache,
-      otp_app: :nebulex_adapters_local,
+      otp_app: :nebulex_local,
       adapter: Nebulex.Adapters.Local
   end
 

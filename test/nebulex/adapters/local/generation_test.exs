@@ -4,7 +4,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
   defmodule LocalWithSizeLimit do
     @moduledoc false
     use Nebulex.Cache,
-      otp_app: :nebulex_adapters_local,
+      otp_app: :nebulex_local,
       adapter: Nebulex.Adapters.Local
   end
 
@@ -28,11 +28,10 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
                  {:read_concurrency, true},
                  {:write_concurrency, true}
                ],
-               gc_cleanup_max_timeout: 600_000,
-               gc_cleanup_min_timeout: 10_000,
-               gc_cleanup_ref: nil,
+               gc_healthcheck_ref: nil,
                gc_heartbeat_ref: nil,
                gc_interval: nil,
+               gc_memory_check_interval: 10_000,
                max_size: nil,
                meta_tab: meta_tab,
                stats_counter: {:write_concurrency, _}
@@ -61,34 +60,40 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
                  {:read_concurrency, true},
                  {:write_concurrency, true}
                ],
-               gc_cleanup_max_timeout: 600_000,
-               gc_cleanup_min_timeout: 10_000,
-               gc_cleanup_ref: gc_cleanup_ref,
+               gc_healthcheck_ref: gc_healthcheck_ref,
                gc_heartbeat_ref: gc_heartbeat_ref,
                gc_interval: 10,
+               gc_memory_check_interval: 10_000,
                max_size: 10,
                meta_tab: meta_tab,
                stats_counter: {:write_concurrency, _}
              } = Generation.get_state(LocalWithSizeLimit)
 
-      assert is_reference(gc_cleanup_ref)
+      assert is_reference(gc_healthcheck_ref)
       assert is_reference(gc_heartbeat_ref)
       assert is_reference(meta_tab)
 
       :ok = LocalWithSizeLimit.stop()
     end
 
-    test "error: invalid gc_cleanup_min_timeout" do
+    test "error: invalid :gc_memory_check_interval option" do
       _ = Process.flag(:trap_exit, true)
 
       assert {:error, {%NimbleOptions.ValidationError{message: err}, _}} =
                LocalWithSizeLimit.start_link(
                  gc_interval: 3600,
-                 gc_cleanup_min_timeout: -1,
-                 gc_cleanup_max_timeout: -1
+                 gc_memory_check_interval: -1
                )
 
-      assert Regex.match?(~r/invalid value for :gc_cleanup_min_timeout/, err)
+      assert Regex.match?(~r/invalid value for :gc_memory_check_interval/, err)
+
+      assert {:error, {%NimbleOptions.ValidationError{message: err}, _}} =
+               LocalWithSizeLimit.start_link(
+                 gc_interval: 3600,
+                 gc_memory_check_interval: & &1
+               )
+
+      assert Regex.match?(~r/invalid value for :gc_memory_check_interval/, err)
     end
   end
 
@@ -135,7 +140,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       :ok = Process.sleep(800)
 
       cache.with_dynamic_cache(name, fn ->
-        cache.new_generation(reset_timer: false)
+        cache.new_generation(gc_interval_reset: false)
       end)
 
       assert generations_len(name) == 2
@@ -144,13 +149,13 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       assert generations_len(name) == 2
     end
 
-    test "reset timer", %{cache: cache, name: name} do
+    test "reset GC interval", %{cache: cache, name: name} do
       assert generations_len(name) == 1
 
       :ok = Process.sleep(800)
 
       cache.with_dynamic_cache(name, fn ->
-        cache.reset_generation_timer()
+        cache.reset_gc_interval()
       end)
 
       :ok = Process.sleep(220)
@@ -162,12 +167,11 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
   end
 
   describe "allocated memory" do
-    test "cleanup is triggered when max generation size is reached" do
+    test "healthcheck is triggered when max generation size is reached" do
       {:ok, _pid} =
         LocalWithSizeLimit.start_link(
           gc_interval: :timer.hours(1),
-          gc_cleanup_min_timeout: :timer.seconds(1),
-          gc_cleanup_max_timeout: :timer.seconds(3),
+          gc_memory_check_interval: &__MODULE__.mem_check_interval/3,
           allocated_memory: 100_000,
           gc_flush_delay: 1
         )
@@ -177,7 +181,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       {mem_size, _} = Generation.memory_info(LocalWithSizeLimit)
       :ok = Generation.realloc(LocalWithSizeLimit, mem_size * 2)
 
-      # Trigger the cleanup event
+      # Trigger the healthcheck event
       :ok = check_cache_size(LocalWithSizeLimit, 1000)
 
       assert generations_len(LocalWithSizeLimit) == 1
@@ -185,7 +189,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
 
       :ok = flood_cache(mem_size, mem_size * 2)
 
-      # Wait until the mem is less than the max (cleanup has run many times)
+      # Wait until the mem is less than the max (healthcheck has run many times)
       wait_until(fn ->
         assert generations_len(LocalWithSizeLimit) == 2
         assert_mem_size(:<=)
@@ -205,7 +209,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
         assert_mem_size(:>)
       end)
 
-      # Trigger the cleanup event
+      # Trigger the healthcheck event
       :ok = Enum.each(1..3, fn _ -> check_cache_size(LocalWithSizeLimit) end)
 
       wait_until(fn ->
@@ -216,12 +220,11 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       :ok = LocalWithSizeLimit.stop()
     end
 
-    test "cleanup while cache is being used" do
+    test "healthcheck while cache is being used" do
       {:ok, _pid} =
         LocalWithSizeLimit.start_link(
           gc_interval: :timer.hours(1),
-          gc_cleanup_min_timeout: :timer.seconds(1),
-          gc_cleanup_max_timeout: :timer.seconds(3),
+          gc_memory_check_interval: :timer.seconds(1),
           allocated_memory: 100
         )
 
@@ -234,7 +237,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
 
         LocalWithSizeLimit
         |> Generation.server()
-        |> send(:cleanup)
+        |> send(:healthcheck)
       end
 
       :ok = Enum.each(tasks, &Task.shutdown/1)
@@ -244,13 +247,12 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
   end
 
   describe "max size" do
-    test "cleanup is triggered when size limit is reached" do
+    test "healthcheck is triggered when size limit is reached" do
       {:ok, _pid} =
         LocalWithSizeLimit.start_link(
           gc_interval: :timer.hours(1),
           max_size: 3,
-          gc_cleanup_min_timeout: 1000,
-          gc_cleanup_max_timeout: 1500
+          gc_memory_check_interval: :timer.seconds(1)
         )
 
       # Initially there should be only 1 generation and no entries
@@ -263,7 +265,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       # Validate current size
       assert LocalWithSizeLimit.count_all!() == 4
 
-      # Wait the max cleanup timeout
+      # Wait the max healthcheck timeout
       :ok = Process.sleep(1600)
 
       # There should be 2 generation now
@@ -272,7 +274,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       # The entries should be now in the older generation
       assert LocalWithSizeLimit.count_all!() == 4
 
-      # Wait the min cleanup timeout since max size is exceeded
+      # Wait the min healthcheck timeout since max size is exceeded
       :ok = Process.sleep(1100)
 
       # Cache should be empty now
@@ -284,7 +286,7 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       # Validate current size
       assert LocalWithSizeLimit.count_all!() == 2
 
-      # Wait the max cleanup timeout (timeout should be relative to the size)
+      # Wait the max healthcheck timeout
       :ok = Process.sleep(1600)
 
       # The entries should be in the newer generation yet
@@ -293,13 +295,13 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       # Put some entries to exceed the max size
       _ = cache_put(LocalWithSizeLimit, 7..8)
 
-      # Wait the max cleanup timeout
+      # Wait the max healthcheck timeout
       :ok = Process.sleep(1600)
 
       # The entries should be in the newer generation yet
       assert LocalWithSizeLimit.count_all!() == 4
 
-      # Wait the min cleanup timeout since max size is exceeded
+      # Wait the min healthcheck timeout since max size is exceeded
       :ok = Process.sleep(1100)
 
       # Cache should be empty now
@@ -309,18 +311,17 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
       :ok = LocalWithSizeLimit.stop()
     end
 
-    test "cleanup works ok when gc_interval not set or is nil" do
+    test "healthcheck works ok when gc_interval not set or is nil" do
       {:ok, _pid} =
         LocalWithSizeLimit.start_link(
           max_size: 3,
-          gc_cleanup_min_timeout: 1000,
-          gc_cleanup_max_timeout: 1500
+          gc_memory_check_interval: :timer.seconds(1)
         )
 
       # Put some entries to exceed the max size
       _ = cache_put(LocalWithSizeLimit, 1..4)
 
-      # Wait the max cleanup timeout
+      # Wait the max healthcheck timeout
       :ok = Process.sleep(1600)
 
       # Assert not crashed
@@ -334,10 +335,10 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
   ## Private Functions
 
   defp check_cache_size(cache, sleep \\ nil) do
-    :cleanup =
+    :healthcheck =
       cache
       |> Generation.server()
-      |> send(:cleanup)
+      |> send(:healthcheck)
 
     if is_integer(sleep) and sleep > 0 do
       Process.sleep(sleep)
@@ -384,5 +385,21 @@ defmodule Nebulex.Adapters.Local.GenerationTest do
     :ok = Process.sleep(1)
 
     task_fun(cache, i + 1)
+  end
+
+  def mem_check_interval(_info, size, max_size) do
+    mem_check_interval(size, max_size, :timer.seconds(1), :timer.seconds(3))
+  end
+
+  defp mem_check_interval(size, _max_size, _min_timeout, max_timeout) when size <= 0 do
+    max_timeout
+  end
+
+  defp mem_check_interval(size, max_size, min_timeout, _max_timeout) when size >= max_size do
+    min_timeout
+  end
+
+  defp mem_check_interval(size, max_size, min_timeout, max_timeout) do
+    round((min_timeout - max_timeout) / max_size * size + max_timeout)
   end
 end

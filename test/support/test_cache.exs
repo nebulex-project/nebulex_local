@@ -1,7 +1,7 @@
 defmodule Nebulex.Adapters.Local.TestCache do
   @moduledoc false
   use Nebulex.Cache,
-    otp_app: :nebulex_adapters_local,
+    otp_app: :nebulex_local,
     adapter: Nebulex.Adapters.Local
 
   def get_and_update_fun(nil), do: {nil, 1}

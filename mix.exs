@@ -1,13 +1,13 @@
 defmodule NebulexAdaptersLocal.MixProject do
   use Mix.Project
 
-  @source_url "https://github.com/elixir-nebulex/nebulex_adapters_local"
+  @source_url "https://github.com/elixir-nebulex/nebulex_local"
   @version "3.0.0-dev"
   # @nbx_vsn "3.0.0"
 
   def project do
     [
-      app: :nebulex_adapters_local,
+      app: :nebulex_local,
       version: @version,
       elixir: "~> 1.10",
       aliases: aliases(),
@@ -90,7 +90,7 @@ defmodule NebulexAdaptersLocal.MixProject do
 
   defp package do
     [
-      name: :nebulex_adapters_local,
+      name: :nebulex_local,
       maintainers: [
         "Carlos Bolanos",
         "Felipe Ripoll"

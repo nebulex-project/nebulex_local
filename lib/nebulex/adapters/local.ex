@@ -12,7 +12,7 @@ defmodule Nebulex.Adapters.Local do
   cached elements.
 
   This implementation of generation cache uses only two generations, referred
-  to as the `newer` and the `older` generation.
+  to as the `new` and the `old` generation.
 
   See `Nebulex.Adapters.Local.Generation` to learn more about generation
   management and garbage collection.
@@ -27,6 +27,7 @@ defmodule Nebulex.Adapters.Local do
     * Sharding - For intensive workloads, the Cache may also be partitioned
       (by using `:shards` backend and specifying the `:partitions` option).
     * Support for transactions via Erlang global name registration facility.
+      See `Nebulex.Adapter.Transaction`.
     * Support for stats.
 
   [gc]: http://hexdocs.pm/nebulex/Nebulex.Adapters.Local.Generation.html
@@ -36,12 +37,6 @@ defmodule Nebulex.Adapters.Local do
   The following options can be used to configure the adapter:
 
   #{Nebulex.Adapters.Local.Options.adapter_options_docs()}
-
-  > #### Memory check for `:max_size` and `:allocated_memory` options {: .info}
-  > The memory check validates whether the cache has reached the memory
-  > limit (either the `:max_size` or `:allocated_memory`). If so, the GC
-  > creates a new generation, triggering the deletion of the older one
-  > and releasing memory space.
 
   ## Usage
 
@@ -61,8 +56,7 @@ defmodule Nebulex.Adapters.Local do
         gc_interval: :timer.hours(12),
         max_size: 1_000_000,
         allocated_memory: 2_000_000_000,
-        gc_cleanup_min_timeout: :timer.seconds(10),
-        gc_cleanup_max_timeout: :timer.minutes(10)
+        gc_memory_check_interval: :timer.seconds(10)
 
   For intensive workloads, the Cache may also be partitioned using `:shards`
   as cache backend (`backend: :shards`) and configuring the desired number of
@@ -70,12 +64,11 @@ defmodule Nebulex.Adapters.Local do
   `System.schedulers_online()`.
 
       config :my_app, MyApp.LocalCache,
+        backend: :shards,
         gc_interval: :timer.hours(12),
         max_size: 1_000_000,
         allocated_memory: 2_000_000_000,
-        gc_cleanup_min_timeout: :timer.seconds(10),
-        gc_cleanup_max_timeout: :timer.minutes(10),
-        backend: :shards,
+        gc_memory_check_interval: :timer.seconds(10)
         partitions: System.schedulers_online() * 2
 
   If your application was generated with a supervisor (by passing `--sup`
@@ -92,21 +85,14 @@ defmodule Nebulex.Adapters.Local do
 
   See `Nebulex.Cache` for more information.
 
-  ## Eviction configuration
-
-  This section helps you understand how the different configuration options work
-  and gives you an idea of what values to set, especially if this is your first
-  time using Nebulex.
-
-  ### `:ttl` option
+  ## The `:ttl` option
 
   The `:ttl` is a runtime option meant to set a key's expiration time. It is
   evaluated on-demand when a key is retrieved, and if it has expired, it is
   removed from the cache. Hence, it can not be used as an eviction method;
   it is more for maintaining the cache's integrity and consistency. For this
   reason, you should always configure the eviction or GC options. See the
-  ["Garbage collection options"](#module-garbage-collection options) for more
-  information.
+  ["Eviction policy"](#module-eviction-policy) section for more information.
 
   ### Caveats when using `:ttl` option:
 
@@ -122,86 +108,83 @@ defmodule Nebulex.Adapters.Local do
       generation), it is evicted from the cache when the GC removes the older
       generation so it won't be retrievable anymore.
 
-  ### Garbage collection options
+  ## Eviction policy
 
-  This adapter implements a generational cache, which means its main eviction
-  mechanism is pushing a new cache generation and remove the oldest one. In
-  this way, we ensure only the most frequently used keys are always available
-  in the newer generation and the the least frequently used are evicted when
-  the garbage collector runs, and the garbage collector is triggered upon
-  these conditions:
+  This adapter implements a generational cache, which means its primary eviction
+  mechanism pushes a new cache generation and removes the oldest one. This
+  mechanism ensures the garbage collector removes the least frequently used keys
+  when it runs and deletes the oldest generation. At the same time, only the
+  most frequently used keys are always available in the newer generation. In
+  other words, the generation cache also enforces an LRU (Least Recently Used)
+  eviction policy.
 
-    * When the time interval defined by `:gc_interval` is completed.
-      This makes the garbage-collector process to run creating a new
-      generation and forcing to delete the oldest one.
-    * When the "cleanup" timeout expires, and then the limits `:max_size`
-      and `:allocated_memory` are checked, if one of those is reached,
-      then the garbage collector runs (a new generation is created and
-      the oldest one is deleted). The cleanup timeout is controlled by
-      `:gc_cleanup_min_timeout` and `:gc_cleanup_max_timeout`, it works
-      with an inverse linear backoff, which means the timeout is inverse
-      proportional to the memory growth; the bigger the cache size is,
-      the shorter the cleanup timeout will be.
+  The following conditions trigger the garbage collector to run:
 
-  ### First-time configuration
+    * When the time interval defined by `:gc_interval` is completed. This
+      makes the garbage-collector process to run creating a new generation
+      and forcing to delete the oldest one. This interval defines how often
+      you want to evict the least frequently used entries or the retention
+      period for the cached entries. The retention period for the least
+      frequently used entries is equivalent to two garbage collection cycles
+      (since we keep two generations), which means the GC removes all entries
+      not accessed in the cache during that time.
 
-  For configuring the cache with accurate and/or good values it is important
-  to know several things in advance, like for example the size of an entry
-  in average so we can calculate a good value for max size and/or allocated
-  memory, how intensive will be the load in terms of reads and writes, etc.
-  The problem is most of these aspects are unknown when it is a new app or
-  we are using the cache for the first time. Therefore, the following
-  recommendations will help you to configure the cache for the first time:
+    * When the time interval defined by `:gc_memory_check_interval` is
+      completed. Beware: This option works alongside the `:max_size` and
+      `:allocated_memory` options. The interval defines when the GC must
+      run to validate the cache size and memory and release space if any
+      of the limits are exceeded. It is mainly for keeping the cached data
+      under the configured memory size limits and avoiding running out of
+      memory at some point.
 
-    * When configuring the `:gc_interval`, think about how that often the
-      least frequently used entries should be evicted, or what is the desired
-      retention period for the cached entries. For example, if `:gc_interval`
-      is set to 1 hr, it means you will keep in cache only those entries that
-      are retrieved periodically within a 2 hr period; `gc_interval * 2`,
-      being 2 the number of generations. Longer than that, the GC will
-      ensure is always evicted (the oldest generation is always deleted).
-      If it is the first time using Nebulex, perhaps you can start with
-      `gc_interval: :timer.hours(12)` (12 hrs), so the max retention
-      period for the keys will be 1 day; but ensure you also set either the
-      `:max_size` or `:allocated_memory`.
-    * It is highly recommended to set either `:max_size` or `:allocated_memory`
-      to ensure the oldest generation is deleted (least frequently used keys
-      are evicted) when one of these limits is reached and also to avoid
-      running out of memory. For example, for the `:allocated_memory` we can
-      set 25% of the total memory, and for the `:max_size` something between
-      `100_000` and `1_000_000`.
-    * For `:gc_cleanup_min_timeout` we can set `10_000`, which means when the
-      cache is reaching the size or memory limit, the polling period for the
-      cleanup process will be 10 seconds. And for `:gc_cleanup_max_timeout`
-      we can set `600_000`, which means when the cache is almost empty the
-      polling period will be close to 10 minutes.
+  ### Configuring the GC options
 
-  ## Stats
+  This section helps you understand how the different configuration options work
+  and gives you an idea of what values to set, especially if this is your first
+  time using Nebulex with the local adapter.
 
-  This adapter does support stats by using the default implementation
-  provided by `Nebulex.Adapter.Stats`. The adapter also uses the
-  `Nebulex.Telemetry.StatsHandler` to aggregate the stats and keep
-  them updated. Therefore, it requires the Telemetry events are emitted
-  by the adapter (the `:telemetry` option should not be set to `false`
-  so the Telemetry events can be dispatched), otherwise, stats won't
-  work properly.
+  Understanding a few things in advance is essential to configure the cache
+  with appropriate values. For example, the average size of an entry so we
+  can configure a reasonable value for the max size or allocated memory.
+  Also, the reads and writes load. The problem is that sometimes it is
+  challenging to have this information in advance, especially when it is
+  a new app or when we use the cache for the first time. The following
+  are tips to help you to configure the cache (especially if it is your
+  for the first time):
+
+    * To configure the GC, consider the retention period for the least
+      frequently used entries you desire. For example, if the GC is 1 hr, you
+      will keep only those entries accessed periodically during the last 2 hrs
+      (two GC cycles, as outlined above). If it is your first time using the
+      local adapter, you may start configuring the `:gc_interval` to 12 hrs to
+      ensure daily data retention. Then, you can analyze the data and change the
+      value based on your findings.
+
+    * Configure the `:max_size` or `:allocated_memory` option (or both) to keep
+      memory healthy under the given limits (avoid running out of memory).
+      Configuring these options will ensure the GC releases memory space
+      whenever a limit is reached or exceeded. For example, one may assign 50%
+      of the total memory to the `:allocated_memory`. It depends on how much
+      memory you need and how much your app needs to run. For the `:max_size`,
+      consider how many entries you expect to keep in the cache; you could start
+      with something between `100_000` and `1_000_000`.
+
+    * Finally, when configuring `:max_size` or `:allocated_memory` (or both),
+      you must also configure `:gc_memory_check_interval` (defaults to 10 sec).
+      By default, the GC will run every 10 seconds to validate the cache size
+      and memory.
 
   ## Queryable API
 
-  Since this adapter is implemented on top of ETS tables, the query must be a
-  valid [**"ETS Match Spec"**](https://www.erlang.org/doc/man/ets#match_spec).
+  Since the adapter implementation uses ETS tables underneath, the query must be
+  a valid [**ETS Match Spec**](https://www.erlang.org/doc/man/ets#match_spec).
   However, there are some predefined or shorthand queries you can use. See the
-  section "Predefined queries" below for information.
+  ["Predefined queries"](#module-predefined-queries) section for information.
 
-  Internally, an entry is represented by the tuple
-  `{:entry, key, value, touched, ttl}`, which means the match pattern within
-  the `:ets.match_spec()` must be something like:
-  `{:entry, :"$1", :"$2", :"$3", :"$4"}`.
-  In order to make query building easier, you can use `Ex2ms` library.
-
-  For match-spec queries, it is required to understand the adapter's entry
-  structure, which is `{:entry, key, value, touched, ttl}`. Hence, one may
-  write the following query:
+  The adapter defines an entry as a tuple `{:entry, key, value, touched, ttl}`,
+  meaning the match pattern within the ETS Match Spec must be like
+  `{:entry, :"$1", :"$2", :"$3", :"$4"}`. To make query building easier,
+  you can use the `Ex2ms` library.
 
       iex> match_spec = [
       ...>   {
@@ -223,6 +206,14 @@ defmodule Nebulex.Adapters.Local do
 
       iex> {:ok, expired} = MyCache.get_all(query: :expired)
 
+  ## Transaction API
+
+  This adapter inherits the default implementation provided by
+  `Nebulex.Adapter.Transaction`. Therefore, the `transaction` command accepts
+  the following options:
+
+  #{Nebulex.Adapter.Transaction.Options.options_docs()}
+
   ## Extended API (convenience functions)
 
   This adapter provides some additional convenience functions to the
@@ -231,7 +222,7 @@ defmodule Nebulex.Adapters.Local do
   Creating new generations:
 
       MyCache.new_generation()
-      MyCache.new_generation(reset_timer: false)
+      MyCache.new_generation(gc_interval_reset: false)
 
   Retrieving the current generations:
 
@@ -262,6 +253,36 @@ defmodule Nebulex.Adapters.Local do
   alias Nebulex.Adapters.Local.{Backend, Generation, Metadata}
   alias Nebulex.Time
 
+  ## Types & Internal definitions
+
+  @typedoc "Adapter's backend type"
+  @type backend() :: :ets | :shards
+
+  @typedoc """
+  The type for the `:gc_memory_check_interval` option value.
+
+  The `:gc_memory_check_interval` value can be:
+
+    * A positive integer with the time in milliseconds.
+    * An anonymous function to call in runtime and must return the next interval
+      in milliseconds. The function receives three arguments:
+      * The first argument is an atom indicating the limit, whether it is
+        `:size` or `:memory`.
+      * The second argument is the current value for the limit. For example,
+        if the limit in the first argument is `:size`, the second argument tells
+        the current cache size (number of entries in the cache). If the limit is
+        `:memory`, it means the recent cache memory in bytes.
+      * The third argument is the maximum limit provided in the configuration.
+        When the limit in the first argument is `:size`, it is the `:max_size`.
+        On the other hand, if the limit is `:memory`, it is the
+        `:allocated_memory`.
+
+  """
+  @type mem_check_interval() ::
+          pos_integer()
+          | (limit :: :size | :memory, current :: non_neg_integer(), max :: non_neg_integer() ->
+               timeout :: pos_integer())
+
   # Cache Entry
   defrecord(:entry,
     key: nil,
@@ -283,10 +304,10 @@ defmodule Nebulex.Adapters.Local do
       end
 
       @doc """
-      A convenience function for reset the GC timer.
+      A convenience function for reset the GC interval.
       """
-      def reset_generation_timer do
-        Generation.reset_timer(get_dynamic_cache())
+      def reset_gc_interval do
+        Generation.reset_gc_interval(get_dynamic_cache())
       end
 
       @doc """

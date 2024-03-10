@@ -416,9 +416,9 @@ defmodule Nebulex.Adapters.LocalTest do
     end
 
     describe "Persistence API" do
-      test "dump with compression", %{cache: cache} do
+      test "dump with compression", %{cache: cache, name: name} do
         tmp = System.tmp_dir!()
-        path = "#{tmp}/#{cache}"
+        path = "#{tmp}/#{name}"
 
         try do
           :ok = cache.put_all(foo: :bar)

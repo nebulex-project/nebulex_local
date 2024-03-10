@@ -11,7 +11,7 @@ defmodule Nebulex.Adapters.Local.InfoTest do
   defmodule Cache do
     @moduledoc false
     use Nebulex.Cache,
-      otp_app: :nebulex_adapters_local,
+      otp_app: :nebulex_local,
       adapter: Nebulex.Adapters.Local
   end
 

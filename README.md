@@ -3,25 +3,23 @@
 
 [Nebulex]: https://github.com/cabol/nebulex
 
-![CI](https://github.com/elixir-nebulex/nebulex_adapters_local/workflows/CI/badge.svg)
-[![Coverage Status](https://coveralls.io/repos/github/elixir-nebulex/nebulex_adapters_local/badge.svg?branch=main)](https://coveralls.io/github/elixir-nebulex/nebulex_adapters_local?branch=main)
-[![Hex Version](https://img.shields.io/hexpm/v/nebulex_adapters_local.svg)](https://hex.pm/packages/nebulex_adapters_local)
-[![Docs](https://img.shields.io/badge/docs-hexpm-blue.svg)](https://hexdocs.pm/nebulex_adapters_local)
+![CI](https://github.com/elixir-nebulex/nebulex_local/workflows/CI/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/elixir-nebulex/nebulex_local/badge.svg?branch=main)](https://coveralls.io/github/elixir-nebulex/nebulex_local?branch=main)
+[![Hex Version](https://img.shields.io/hexpm/v/nebulex_local.svg)](https://hex.pm/packages/nebulex_local)
+[![Docs](https://img.shields.io/badge/docs-hexpm-blue.svg)](https://hexdocs.pm/nebulex_local)
 
 See the [online documentation][online_docs] for more information.
 
-[online_docs]: https://hexdocs.pm/nebulex_adapters_local/
-
-**NOTE:** This adapter only supports Nebulex v3.0.0 onwards.
+[online_docs]: https://hexdocs.pm/nebulex_local/
 
 ## Installation
 
-Add `:nebulex_adapters_local` to your list of dependencies in `mix.exs`:
+Add `:nebulex_local` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:nebulex_adapters_local, "~> 3.0"}
+    {:nebulex_local, "~> 3.0"}
   ]
 end
 ```
@@ -46,8 +44,7 @@ config :my_app, MyApp.LocalCache,
   gc_interval: :timer.hours(12),
   max_size: 1_000_000,
   allocated_memory: 2_000_000_000,
-  gc_cleanup_min_timeout: :timer.seconds(10),
-  gc_cleanup_max_timeout: :timer.minutes(10)
+  gc_memory_check_interval: :timer.seconds(10)
 ```
 
 If your application was generated with a supervisor (by passing `--sup`
@@ -142,9 +139,9 @@ for more information.
 
 Contributions to Nebulex are very welcome and appreciated!
 
-Use the [issue tracker](https://github.com/elixir-nebulex/nebulex_adapters_local/issues)
+Use the [issue tracker](https://github.com/elixir-nebulex/nebulex_local/issues)
 for bug reports or feature requests. Open a
-[pull request](https://github.com/elixir-nebulex/nebulex_adapters_local/pulls)
+[pull request](https://github.com/elixir-nebulex/nebulex_local/pulls)
 when you are ready to contribute.
 
 When submitting a pull request you should not update the

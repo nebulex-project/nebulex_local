@@ -6,11 +6,8 @@ defmodule BenchHelper do
   @doc false
   def benchmarks(cache) do
     %{
-      "get" => fn input ->
-        cache.get(input)
-      end,
-      "get_all" => fn input ->
-        cache.get_all([input, "foo", "bar"])
+      "fetch" => fn input ->
+        cache.fetch(input)
       end,
       "put" => fn input ->
         cache.put(input, input)
@@ -48,8 +45,8 @@ defmodule BenchHelper do
       "update" => fn input ->
         cache.update(input, 1, &Kernel.+(&1, 1))
       end,
-      "all" => fn _input ->
-        cache.all()
+      "get_all" => fn input ->
+        cache.get_all(in: [input, "foo", "bar"])
       end
     }
   end

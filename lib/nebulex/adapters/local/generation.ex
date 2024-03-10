@@ -14,8 +14,8 @@ defmodule Nebulex.Adapters.Local.Generation do
     * When the `:gc_interval` times outs.
     * When the scheduled memory check times out. The memory check is executed
       when the `:max_size` or `:allocated_memory` options (or both) are
-      configured. Furthermore, the memory check timeout is determined based on
-      the options `gc_cleanup_min_timeout` and `gc_cleanup_max_timeout`.
+      configured. Furthermore, the memory check interval is determined by
+      option `:gc_memory_check_interval`.
 
   The oldest generation is deleted in two steps. First, the underlying ETS table
   is flushed to release space and only marked for deletion as there may still be
@@ -41,9 +41,8 @@ defmodule Nebulex.Adapters.Local.Generation do
     :gc_heartbeat_ref,
     :max_size,
     :allocated_memory,
-    :gc_cleanup_min_timeout,
-    :gc_cleanup_max_timeout,
-    :gc_cleanup_ref,
+    :gc_memory_check_interval,
+    :gc_healthcheck_ref,
     :gc_flush_delay
   ]
 
@@ -77,14 +76,13 @@ defmodule Nebulex.Adapters.Local.Generation do
 
   ## Options
 
-    * `:reset_timer` - Indicates if the poll frequency time-out should
-      be reset or not (default: true).
+  #{Nebulex.Adapters.Local.Options.runtime_options_docs()}
 
   ## Example
 
       Nebulex.Adapters.Local.Generation.new(MyCache)
 
-      Nebulex.Adapters.Local.Generation.new(MyCache, reset_timer: false)
+      Nebulex.Adapters.Local.Generation.new(MyCache, gc_interval_reset: false)
 
   """
   @spec new(server_ref, opts) :: [atom]
@@ -92,7 +90,7 @@ defmodule Nebulex.Adapters.Local.Generation do
     # Validate options
     opts = Options.validate_runtime_opts!(opts)
 
-    do_call(server_ref, {:new_generation, Keyword.fetch!(opts, :reset_timer)})
+    do_call(server_ref, {:new_generation, Keyword.fetch!(opts, :gc_interval_reset)})
   end
 
   @doc """
@@ -137,18 +135,18 @@ defmodule Nebulex.Adapters.Local.Generation do
   end
 
   @doc """
-  Resets the timer for pushing new cache generations.
+  Resets the GC interval.
 
   ## Example
 
-      Nebulex.Adapters.Local.Generation.reset_timer(MyCache)
+      Nebulex.Adapters.Local.Generation.reset_gc_interval(MyCache)
 
   """
-  @spec reset_timer(server_ref()) :: :ok
-  def reset_timer(server_ref) do
+  @spec reset_gc_interval(server_ref()) :: :ok
+  def reset_gc_interval(server_ref) do
     server_ref
     |> server()
-    |> GenServer.cast(:reset_timer)
+    |> GenServer.cast(:gc_interval_reset)
   end
 
   @doc """
@@ -223,7 +221,7 @@ defmodule Nebulex.Adapters.Local.Generation do
 
   @impl true
   def init(opts) do
-    # Trap exit signals to run cleanup process
+    # Trap exit signals to run eviction tasks
     _ = Process.flag(:trap_exit, true)
 
     # Get adapter metadata
@@ -242,11 +240,6 @@ defmodule Nebulex.Adapters.Local.Generation do
         |> Map.merge(adapter_meta)
       )
 
-    # Init cleanup timer
-    cleanup_ref =
-      if state.max_size || state.allocated_memory,
-        do: start_timer(state.gc_cleanup_max_timeout, nil, :cleanup)
-
     # Timer ref
     {:ok, ref} =
       if state.gc_interval,
@@ -254,9 +247,34 @@ defmodule Nebulex.Adapters.Local.Generation do
         else: {new_gen(state), nil}
 
     # Update state
-    state = %{state | gc_cleanup_ref: cleanup_ref, gc_heartbeat_ref: ref}
+    state = %{state | gc_heartbeat_ref: ref}
 
-    {:ok, state}
+    {:ok, state, {:continue, :setup_mem_check_interval}}
+  end
+
+  @impl true
+  def handle_continue(
+        :setup_mem_check_interval,
+        %__MODULE__{
+          max_size: max_size,
+          allocated_memory: allocated_memory,
+          gc_memory_check_interval: mem_check_interval
+        } = state
+      ) do
+    # Init healthcheck timer
+    healthcheck_ref =
+      cond do
+        not is_nil(max_size) ->
+          eval_mem_check_interval(:size, 0, max_size, nil, mem_check_interval)
+
+        not is_nil(allocated_memory) ->
+          eval_mem_check_interval(:memory, 0, allocated_memory, nil, mem_check_interval)
+
+        true ->
+          nil
+      end
+
+    {:noreply, %{state | gc_healthcheck_ref: healthcheck_ref}}
   end
 
   @impl true
@@ -273,15 +291,15 @@ defmodule Nebulex.Adapters.Local.Generation do
       |> list()
       |> Enum.each(&state.backend.delete_all_objects(&1))
 
-    {:reply, :ok, %{state | gc_heartbeat_ref: maybe_reset_timer(true, state)}}
+    {:reply, :ok, %{state | gc_heartbeat_ref: maybe_reset_heartbeat(true, state)}}
   end
 
-  def handle_call({:new_generation, reset_timer?}, _from, state) do
+  def handle_call({:new_generation, gc_interval_reset?}, _from, state) do
     # Create new generation
     :ok = new_gen(state)
 
     # Maybe reset heartbeat timer
-    heartbeat_ref = maybe_reset_timer(reset_timer?, state)
+    heartbeat_ref = maybe_reset_heartbeat(gc_interval_reset?, state)
 
     {:reply, :ok, %{state | gc_heartbeat_ref: heartbeat_ref}}
   end
@@ -303,8 +321,8 @@ defmodule Nebulex.Adapters.Local.Generation do
   end
 
   @impl true
-  def handle_cast(:reset_timer, state) do
-    {:noreply, %{state | gc_heartbeat_ref: maybe_reset_timer(true, state)}}
+  def handle_cast(:gc_interval_reset, state) do
+    {:noreply, %{state | gc_heartbeat_ref: maybe_reset_heartbeat(true, state)}}
   end
 
   @impl true
@@ -324,8 +342,8 @@ defmodule Nebulex.Adapters.Local.Generation do
     {:noreply, %{state | gc_heartbeat_ref: heartbeat_ref}}
   end
 
-  def handle_info(:cleanup, state) do
-    # Check size first, if the cleanup is done, skip checking the memory,
+  def handle_info(:healthcheck, state) do
+    # Check size first, if the healthcheck is done, skip checking the memory;
     # otherwise, check the memory too.
     {_, state} =
       with {false, state} <- check_size(state) do
@@ -363,15 +381,15 @@ defmodule Nebulex.Adapters.Local.Generation do
     Process.send_after(self(), event, time)
   end
 
-  defp maybe_reset_timer(_, %__MODULE__{gc_interval: nil} = state) do
+  defp maybe_reset_heartbeat(_, %__MODULE__{gc_interval: nil} = state) do
     state.gc_heartbeat_ref
   end
 
-  defp maybe_reset_timer(false, state) do
+  defp maybe_reset_heartbeat(false, state) do
     state.gc_heartbeat_ref
   end
 
-  defp maybe_reset_timer(true, %__MODULE__{} = state) do
+  defp maybe_reset_heartbeat(true, %__MODULE__{} = state) do
     start_timer(state.gc_interval, state.gc_heartbeat_ref)
   end
 
@@ -429,7 +447,7 @@ defmodule Nebulex.Adapters.Local.Generation do
   end
 
   defp check_size(%__MODULE__{max_size: max_size} = state) when not is_nil(max_size) do
-    maybe_cleanup(:size, state)
+    maybe_run_eviction(:size, state)
   end
 
   defp check_size(state) do
@@ -437,26 +455,25 @@ defmodule Nebulex.Adapters.Local.Generation do
   end
 
   defp check_memory(%__MODULE__{allocated_memory: allocated} = state) when not is_nil(allocated) do
-    maybe_cleanup(:memory, state)
+    maybe_run_eviction(:memory, state)
   end
 
   defp check_memory(state) do
     {false, state}
   end
 
-  defp maybe_cleanup(
+  defp maybe_run_eviction(
          info,
          %__MODULE__{
            cache: cache,
            name: name,
-           gc_cleanup_ref: cleanup_ref,
-           gc_cleanup_min_timeout: min_timeout,
-           gc_cleanup_max_timeout: max_timeout,
+           gc_healthcheck_ref: healthcheck_ref,
            gc_interval: gc_interval,
-           gc_heartbeat_ref: heartbeat_ref
+           gc_heartbeat_ref: heartbeat_ref,
+           gc_memory_check_interval: mem_check_interval
          } = state
        ) do
-    case cleanup_info(info, state) do
+    case eviction_info(info, state) do
       {size, max_size} when size >= max_size ->
         # Create a new generation
         :ok = new_gen(state)
@@ -467,35 +484,41 @@ defmodule Nebulex.Adapters.Local.Generation do
         # Reset the heartbeat timer
         heartbeat_ref = start_timer(gc_interval, heartbeat_ref)
 
-        # Reset the cleanup timer
-        cleanup_ref =
-          info
-          |> cleanup_info(state)
-          |> elem(0)
-          |> reset_cleanup_timer(max_size, min_timeout, max_timeout, cleanup_ref)
+        # Since the eviction has already been done, recalculate the info
+        {size, max_size} = eviction_info(info, state)
 
-        {true, %{state | gc_heartbeat_ref: heartbeat_ref, gc_cleanup_ref: cleanup_ref}}
+        # Reset the healthcheck timer
+        healthcheck_ref =
+          eval_mem_check_interval(info, size, max_size, healthcheck_ref, mem_check_interval)
+
+        {true, %{state | gc_heartbeat_ref: heartbeat_ref, gc_healthcheck_ref: healthcheck_ref}}
 
       {size, max_size} ->
-        # Reset the cleanup timer
-        cleanup_ref = reset_cleanup_timer(size, max_size, min_timeout, max_timeout, cleanup_ref)
+        # Reset the healthcheck timer
+        healthcheck_ref =
+          eval_mem_check_interval(info, size, max_size, healthcheck_ref, mem_check_interval)
 
-        {false, %{state | gc_cleanup_ref: cleanup_ref}}
+        {false, %{state | gc_healthcheck_ref: healthcheck_ref}}
     end
   end
 
-  defp cleanup_info(:size, %__MODULE__{backend: mod, meta_tab: tab, max_size: max}) do
+  defp eval_mem_check_interval(_info, _size, _max_size, timer_ref, timeout)
+       when is_integer(timeout) do
+    start_timer(timeout, timer_ref, :healthcheck)
+  end
+
+  defp eval_mem_check_interval(info, size, max_size, timer_ref, timeout)
+       when is_function(timeout, 3) do
+    timeout.(info, size, max_size)
+    |> start_timer(timer_ref, :healthcheck)
+  end
+
+  defp eviction_info(:size, %__MODULE__{backend: mod, meta_tab: tab, max_size: max}) do
     {size_info(mod, tab), max}
   end
 
-  defp cleanup_info(:memory, %__MODULE__{backend: mod, meta_tab: tab, allocated_memory: max}) do
+  defp eviction_info(:memory, %__MODULE__{backend: mod, meta_tab: tab, allocated_memory: max}) do
     {memory_info(mod, tab), max}
-  end
-
-  defp reset_cleanup_timer(size, max_size, min_timeout, max_timeout, cleanup_ref) do
-    size
-    |> linear_inverse_backoff(max_size, min_timeout, max_timeout)
-    |> start_timer(cleanup_ref, :cleanup)
   end
 
   defp size_info(backend, meta_tab) do
@@ -513,17 +536,5 @@ defmodule Nebulex.Adapters.Local.Generation do
       |> Kernel.*(:erlang.system_info(:wordsize))
       |> Kernel.+(acc)
     end)
-  end
-
-  defp linear_inverse_backoff(size, _max_size, _min_timeout, max_timeout) when size <= 0 do
-    max_timeout
-  end
-
-  defp linear_inverse_backoff(size, max_size, min_timeout, _max_timeout) when size >= max_size do
-    min_timeout
-  end
-
-  defp linear_inverse_backoff(size, max_size, min_timeout, max_timeout) do
-    round((min_timeout - max_timeout) / max_size * size + max_timeout)
   end
 end

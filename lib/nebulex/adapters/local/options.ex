@@ -7,6 +7,7 @@ defmodule Nebulex.Adapters.Local.Options do
   adapter_opts = [
     backend: [
       type: {:in, [:ets, :shards]},
+      type_doc: "`t:backend/0`",
       required: false,
       default: :ets,
       doc: """
@@ -19,9 +20,7 @@ defmodule Nebulex.Adapters.Local.Options do
       default: true,
       doc: """
       Since the adapter uses ETS tables internally, this option is when creating
-      a new table or generation.
-
-      See `:ets.new/2`.
+      a new table or generation. See `:ets.new/2` options.
       """
     ],
     write_concurrency: [
@@ -30,9 +29,7 @@ defmodule Nebulex.Adapters.Local.Options do
       default: true,
       doc: """
       Since the adapter uses ETS tables internally, this option is when creating
-      a new table or generation.
-
-      See `:ets.new/2`.
+      a new table or generation. See `:ets.new/2` options.
       """
     ],
     compressed: [
@@ -41,9 +38,7 @@ defmodule Nebulex.Adapters.Local.Options do
       default: false,
       doc: """
       Since the adapter uses ETS tables internally, this option is when creating
-      a new table or generation.
-
-      See `:ets.new/2`.
+      a new table or generation. See `:ets.new/2` options.
       """
     ],
     backend_type: [
@@ -52,17 +47,15 @@ defmodule Nebulex.Adapters.Local.Options do
       default: :set,
       doc: """
       Since the adapter uses ETS tables internally, this option is when creating
-      a new table or generation.
-
-      See `:ets.new/2`.
+      a new table or generation. See `:ets.new/2` options.
       """
     ],
     partitions: [
       type: :pos_integer,
       required: false,
       doc: """
-      Defines the number of partitions to use in case of using the `:shards`
-      backend. See `:shards.new/2`.
+      The number of ETS partitions when using the `:shards` backend.
+      See `:shards.new/2`.
 
       The default value is `System.schedulers_online()`.
       """
@@ -72,54 +65,59 @@ defmodule Nebulex.Adapters.Local.Options do
       required: false,
       default: 100,
       doc: """
-      This option is for limiting the max nested match specs based on number
-      of keys when purging the older cache generation.
+      This option limits the max nested match specs based on the number of keys
+      when purging the older cache generation.
       """
     ],
     gc_interval: [
       type: :pos_integer,
       required: false,
       doc: """
-      The interval time in milliseconds for garbage collection to run, delete
-      the oldest generation, and create a new one. If not provided, the garbage
-      collection is never executed, so new generations must be created
-      explicitly, e.g., `MyCache.new_generation(opts)` (the default).
+      The interval time in milliseconds for garbage collection to run, create
+      a new generation, make it the newer one, make the previous new generation
+      the old one, and finally remove the previous old one. If not provided
+      (or `nil`), the garbage collection never runs, so new generations must be
+      created explicitly, e.g., `MyCache.new_generation(opts)` (the default);
+      however, the adapter does not recommend this.
+
+      > #### Usage {: .warning}
+      >
+      > Always provide the `:gc_interval` option so the garbage collector can
+      > work appropriately out of the box. Unless you explicitly want to turn
+      > off the garbage collection or handle it yourself.
       """
     ],
     max_size: [
       type: :pos_integer,
       required: false,
       doc: """
-      The max number of cached entries (cache limit). If not provided, the check
-      to release memory is not performed (the default).
+      The maximum number of entries to store in the cache. If not provided
+      (or `nil`), the health check to validate and release memory is not
+      performed (the default).
       """
     ],
     allocated_memory: [
       type: :pos_integer,
       required: false,
       doc: """
-      The max size in bytes for the cache storage. If not provided, the check
-      to release memory is not performed (the default).
+      The maximum size in bytes for the cache storage. If not provided
+      (or `nil`), the health check to validate and release memory is not
+      performed (the default).
       """
     ],
-    gc_cleanup_min_timeout: [
-      type: :pos_integer,
+    gc_memory_check_interval: [
+      type: {:or, [:pos_integer, {:fun, 3}]},
+      type_doc: "`t:mem_check_interval/0`",
       required: false,
       default: :timer.seconds(10),
       doc: """
-      The min timeout in milliseconds for triggering the next cleanup
-      and memory check. It is the timeout to use when the max size or
-      allocated memory reaches the limit.
-      """
-    ],
-    gc_cleanup_max_timeout: [
-      type: :pos_integer,
-      required: false,
-      default: :timer.minutes(10),
-      doc: """
-      The max timeout in milliseconds for triggering the next cleanup
-      and memory check. It is the timeout to use when the cache starts,
-      there are a few entries, or the consumed memory is near 0.
+      The interval time in milliseconds for garbage collection to run the size
+      and memory checks.
+
+      > #### Usage {: .warning}
+      >
+      > Beware: For the `:gc_memory_check_interval` option to work, you must
+      > configure the `:max_size` or `:allocated_memory` (or both) options.
       """
     ],
     gc_flush_delay: [
@@ -135,15 +133,15 @@ defmodule Nebulex.Adapters.Local.Options do
 
   runtime_opts =
     [
-      reset_timer: [
+      gc_interval_reset: [
         type: :boolean,
         required: false,
         default: true,
         doc: """
-        Whether the GC timer should be reset or not.
+        Whether the `:gc_interval` should be reset or not.
         """
       ]
-    ] ++ adapter_opts
+    ]
 
   # Adapter options schema
   @adapter_opts_schema NimbleOptions.new!(adapter_opts)
@@ -158,6 +156,11 @@ defmodule Nebulex.Adapters.Local.Options do
   @spec adapter_options_docs() :: binary()
   def adapter_options_docs do
     NimbleOptions.docs(@adapter_opts_schema)
+  end
+
+  @spec runtime_options_docs() :: binary()
+  def runtime_options_docs do
+    NimbleOptions.docs(@runtime_opts_schema)
   end
 
   # coveralls-ignore-stop
