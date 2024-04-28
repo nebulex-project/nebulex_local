@@ -341,7 +341,7 @@ defmodule Nebulex.Adapters.Local do
 
     # Init stats_counter
     stats_counter =
-      if Keyword.get(opts, :stats, true) == true do
+      if Keyword.fetch!(opts, :stats) == true do
         Stats.init(telemetry_prefix)
       end
 
@@ -398,7 +398,7 @@ defmodule Nebulex.Adapters.Local do
     now = Time.now()
     entry = entry(key: key, value: value, touched: now, exp: exp(now, ttl))
 
-    wrap_ok do_put(on_write, adapter_meta.meta_tab, adapter_meta.backend, entry)
+    wrap_ok(do_put(on_write, adapter_meta.meta_tab, adapter_meta.backend, entry))
   end
 
   defp do_put(:put, meta_tab, backend, entry) do
@@ -741,9 +741,10 @@ defmodule Nebulex.Adapters.Local do
         end
 
       {:error, reason} ->
+        {:current_stacktrace, stacktrace} = Process.info(self(), :current_stacktrace)
         reason = %File.Error{reason: reason, action: "open", path: path}
 
-        wrap_error Nebulex.Error, reason: reason, cache: cache
+        wrap_error(Nebulex.Error, reason: reason, stacktrace: stacktrace, cache: cache)
     end
   end
 
@@ -793,13 +794,13 @@ defmodule Nebulex.Adapters.Local do
   ## Helpers
 
   # Inline common instructions
-  @compile {:inline, list_gen: 1, newer_gen: 1, fetch_entry: 3, pop_entry: 3, match_key: 2}
+  @compile {:inline, fetch_entry: 3, pop_entry: 3, list_gen: 1, newer_gen: 1, match_key: 2}
 
   defmacrop backend_call(adapter_meta, fun, tab, key) do
     quote do
       case unquote(adapter_meta).backend.unquote(fun)(unquote(tab), unquote(key)) do
         [] ->
-          wrap_error Nebulex.KeyError, key: unquote(key), cache: unquote(adapter_meta).name
+          wrap_error(Nebulex.KeyError, key: unquote(key), cache: unquote(adapter_meta).name)
 
         [entry(exp: :infinity) = entry] ->
           {:ok, entry}
@@ -818,8 +819,13 @@ defmodule Nebulex.Adapters.Local do
     end
   end
 
-  defp exp(_now, :infinity), do: :infinity
-  defp exp(now, ttl), do: now + ttl
+  defp fetch_entry(tab, key, adapter_meta) do
+    backend_call(adapter_meta, :lookup, tab, key)
+  end
+
+  defp pop_entry(tab, key, adapter_meta) do
+    backend_call(adapter_meta, :take, tab, key)
+  end
 
   defp list_gen(meta_tab) do
     Metadata.fetch!(meta_tab, :generations)
@@ -835,19 +841,14 @@ defmodule Nebulex.Adapters.Local do
     if Time.now() >= exp do
       true = adapter_meta.backend.delete(tab, key)
 
-      wrap_error Nebulex.KeyError, key: key, cache: adapter_meta.name, reason: :expired
+      wrap_error(Nebulex.KeyError, key: key, cache: adapter_meta.name, reason: :expired)
     else
       {:ok, entry}
     end
   end
 
-  defp fetch_entry(tab, key, adapter_meta) do
-    backend_call(adapter_meta, :lookup, tab, key)
-  end
-
-  defp pop_entry(tab, key, adapter_meta) do
-    backend_call(adapter_meta, :take, tab, key)
-  end
+  defp exp(_now, :infinity), do: :infinity
+  defp exp(now, ttl), do: now + ttl
 
   defp put_entries(meta_tab, backend, entries, chunk_size \\ 0)
 
@@ -1122,6 +1123,11 @@ defmodule Nebulex.Adapters.Local do
 
   defp maybe_match_spec_return_true(match_spec, _op) do
     match_spec
+  end
+
+  defp in_match_spec([k], select) do
+    match_key(k, Time.now())
+    |> new_match_spec(match_return(select))
   end
 
   defp in_match_spec([k1, k2 | keys], select) do

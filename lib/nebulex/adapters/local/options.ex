@@ -5,6 +5,21 @@ defmodule Nebulex.Adapters.Local.Options do
 
   # Adapter option definitions
   adapter_opts = [
+    cache: [
+      type: :atom,
+      required: true,
+      doc: """
+      The defined cache module.
+      """
+    ],
+    stats: [
+      type: :boolean,
+      required: false,
+      default: true,
+      doc: """
+      A flag to determine whether to collect cache stats.
+      """
+    ],
     backend: [
       type: {:in, [:ets, :shards]},
       type_doc: "`t:backend/0`",
@@ -117,7 +132,7 @@ defmodule Nebulex.Adapters.Local.Options do
       > #### Usage {: .warning}
       >
       > Beware: For the `:gc_memory_check_interval` option to work, you must
-      > configure the `:max_size` or `:allocated_memory` (or both) options.
+      > configure one of `:max_size` or `:allocated_memory` (or both).
       """
     ],
     gc_flush_delay: [
@@ -131,23 +146,26 @@ defmodule Nebulex.Adapters.Local.Options do
     ]
   ]
 
-  runtime_opts =
-    [
-      gc_interval_reset: [
-        type: :boolean,
-        required: false,
-        default: true,
-        doc: """
-        Whether the `:gc_interval` should be reset or not.
-        """
-      ]
+  # GC runtime option definitions
+  gc_runtime_opts = [
+    gc_interval_reset: [
+      type: :boolean,
+      required: false,
+      default: true,
+      doc: """
+      Whether the `:gc_interval` should be reset or not.
+      """
     ]
+  ]
 
   # Adapter options schema
   @adapter_opts_schema NimbleOptions.new!(adapter_opts)
 
-  # Runtime options schema
-  @runtime_opts_schema NimbleOptions.new!(runtime_opts)
+  # GC runtime options schema
+  @gc_runtime_opts_schema NimbleOptions.new!(gc_runtime_opts)
+
+  # Nebulex common option keys
+  @nbx_start_opts Nebulex.Cache.Options.__compile_opts__() ++ Nebulex.Cache.Options.__start_opts__()
 
   ## Docs API
 
@@ -158,9 +176,9 @@ defmodule Nebulex.Adapters.Local.Options do
     NimbleOptions.docs(@adapter_opts_schema)
   end
 
-  @spec runtime_options_docs() :: binary()
-  def runtime_options_docs do
-    NimbleOptions.docs(@runtime_opts_schema)
+  @spec gc_runtime_options_docs() :: binary()
+  def gc_runtime_options_docs do
+    NimbleOptions.docs(@gc_runtime_opts_schema)
   end
 
   # coveralls-ignore-stop
@@ -171,19 +189,14 @@ defmodule Nebulex.Adapters.Local.Options do
   def validate_adapter_opts!(opts) do
     adapter_opts =
       opts
-      |> Keyword.take(Keyword.keys(@adapter_opts_schema.schema))
+      |> Keyword.drop(@nbx_start_opts)
       |> NimbleOptions.validate!(@adapter_opts_schema)
 
     Keyword.merge(opts, adapter_opts)
   end
 
-  @spec validate_runtime_opts!(keyword()) :: keyword()
-  def validate_runtime_opts!(opts) do
-    adapter_opts =
-      opts
-      |> Keyword.take(Keyword.keys(@runtime_opts_schema.schema))
-      |> NimbleOptions.validate!(@runtime_opts_schema)
-
-    Keyword.merge(opts, adapter_opts)
+  @spec validate_gc_runtime_opts!(keyword()) :: keyword()
+  def validate_gc_runtime_opts!(opts) do
+    NimbleOptions.validate!(opts, @gc_runtime_opts_schema)
   end
 end

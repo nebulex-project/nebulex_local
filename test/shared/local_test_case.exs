@@ -5,7 +5,7 @@ defmodule Nebulex.Adapters.LocalTest do
 
   deftests do
     import Ex2ms
-    import Nebulex.CacheCase, only: [cache_put: 2, cache_put: 3, cache_put: 4]
+    import Nebulex.CacheCase, only: [cache_put: 2, cache_put: 3, cache_put: 4, t_sleep: 1]
 
     alias Nebulex.Adapter
 
@@ -90,7 +90,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert cache.incr!(:counter_with_ttl) == 2
         assert cache.fetch!(:counter_with_ttl) == 2
 
-        :ok = Process.sleep(1010)
+        t = t_sleep(1010)
 
         assert {:error, %Nebulex.KeyError{key: :counter_with_ttl}} = cache.fetch(:counter_with_ttl)
 
@@ -100,7 +100,7 @@ defmodule Nebulex.Adapters.LocalTest do
 
         assert cache.expire(:counter_with_ttl, 500) == {:ok, true}
 
-        :ok = Process.sleep(600)
+        _ = t_sleep(t + 600)
 
         assert {:error, %Nebulex.KeyError{key: :counter_with_ttl}} = cache.fetch(:counter_with_ttl)
       end
@@ -148,7 +148,7 @@ defmodule Nebulex.Adapters.LocalTest do
       end
 
       test "getting expired and unexpired entries", %{cache: cache} do
-        for action <- [:get_all!, :stream!] do
+        Enum.reduce([:get_all!, :stream!], 0, fn action, acc ->
           expired = cache_put(cache, 1..5, &(&1 * 2), ttl: 1000)
           unexpired = cache_put(cache, 6..10, &(&1 * 2))
           all = expired ++ unexpired
@@ -161,11 +161,13 @@ defmodule Nebulex.Adapters.LocalTest do
           assert get_all_or_stream(cache, action, unexpired_q, opts) == all
           assert get_all_or_stream(cache, action, expired_q, opts) == []
 
-          :ok = Process.sleep(1100)
+          acc = t_sleep(acc + 1100)
 
           assert get_all_or_stream(cache, action, unexpired_q, opts) == unexpired
           assert get_all_or_stream(cache, action, expired_q, opts) == expired
-        end
+
+          acc
+        end)
       end
 
       test "get_all unexpired entries", %{cache: cache} do
@@ -182,7 +184,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert cache.delete_all!(query: :expired) == 0
         assert cache.count_all!(query: :expired) == 0
 
-        :ok = Process.sleep(1600)
+        _ = t_sleep(1600)
 
         assert cache.delete_all!(query: :expired) == 5
         assert cache.count_all!(query: :expired) == 0
@@ -233,6 +235,15 @@ defmodule Nebulex.Adapters.LocalTest do
           assert cache.delete_all!(in: [k]) == 1
           assert cache.count_all!() == 0
         end)
+      end
+
+      test "stream with max_entries", %{cache: cache} do
+        entries = for x <- 1..5, do: {x, x}
+
+        :ok = cache.put_all(entries)
+
+        assert {:ok, stream} = cache.stream([in: [1, 2, 3, 4, 5]], max_entries: 2)
+        assert Enum.to_list(stream) |> Enum.sort() == Enum.sort(entries)
       end
     end
 
@@ -358,7 +369,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert get_from_new(cache, name, "foo") == "bar"
         refute get_from_old(cache, name, "foo")
 
-        :ok = Process.sleep(210)
+        _ = t_sleep(210)
 
         refute cache.get!("foo")
       end
@@ -377,7 +388,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert get_from_new(cache, name, :counter) == 2
         refute get_from_old(cache, name, :counter)
 
-        :ok = Process.sleep(210)
+        _ = t_sleep(210)
 
         assert cache.incr!(:counter) == 1
       end
@@ -497,7 +508,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert get_from_old(cache, name, 1) == 1
         assert cache.fetch!(1) == 1
 
-        :ok = Process.sleep(1100)
+        _ = t_sleep(1100)
 
         assert {:error, %Nebulex.KeyError{key: 1}} = cache.fetch(1)
         refute get_from_new(cache, name, 1)

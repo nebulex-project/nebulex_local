@@ -57,7 +57,7 @@ defmodule Nebulex.Adapters.Local.InfoStatsTest do
       refute Cache.touch!(:f)
       assert Cache.touch!(:b)
 
-      :ok = Process.sleep(1100)
+      _ = t_sleep(1100)
 
       refute Cache.get!(:a)
 
@@ -114,7 +114,7 @@ defmodule Nebulex.Adapters.Local.InfoStatsTest do
 
       assert Cache.get_all!(in: [:a, :b, :c, :d]) |> Map.new() == %{a: 1, b: 2, c: 3, d: 4}
 
-      :ok = Process.sleep(1100)
+      _ = t_sleep(1100)
 
       # The `get_all` doesn't trigger the expiration
       assert Cache.get_all!(in: [:a, :b, :c, :d]) |> Map.new() == %{a: 1, b: 2}

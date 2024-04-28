@@ -64,7 +64,7 @@ defmodule Nebulex.Adapters.Local.Generation do
   @doc """
   Starts the garbage collector for the built-in local cache adapter.
   """
-  @spec start_link(opts) :: GenServer.on_start()
+  @spec start_link(opts()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end
@@ -76,7 +76,7 @@ defmodule Nebulex.Adapters.Local.Generation do
 
   ## Options
 
-  #{Nebulex.Adapters.Local.Options.runtime_options_docs()}
+  #{Nebulex.Adapters.Local.Options.gc_runtime_options_docs()}
 
   ## Example
 
@@ -85,10 +85,10 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.new(MyCache, gc_interval_reset: false)
 
   """
-  @spec new(server_ref, opts) :: [atom]
+  @spec new(server_ref(), opts()) :: [atom()]
   def new(server_ref, opts \\ []) do
     # Validate options
-    opts = Options.validate_runtime_opts!(opts)
+    opts = Options.validate_gc_runtime_opts!(opts)
 
     do_call(server_ref, {:new_generation, Keyword.fetch!(opts, :gc_interval_reset)})
   end
@@ -101,7 +101,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.delete_all(MyCache)
 
   """
-  @spec delete_all(server_ref) :: :ok
+  @spec delete_all(server_ref()) :: :ok
   def delete_all(server_ref) do
     do_call(server_ref, :delete_all)
   end
@@ -116,7 +116,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.realloc(MyCache, 1_000_000)
 
   """
-  @spec realloc(server_ref, pos_integer) :: :ok
+  @spec realloc(server_ref(), pos_integer()) :: :ok
   def realloc(server_ref, size) do
     do_call(server_ref, {:realloc, size})
   end
@@ -129,7 +129,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.memory_info(MyCache)
 
   """
-  @spec memory_info(server_ref) :: {used_mem :: non_neg_integer, total_mem :: non_neg_integer}
+  @spec memory_info(server_ref()) :: {used_mem :: non_neg_integer(), total_mem :: non_neg_integer()}
   def memory_info(server_ref) do
     do_call(server_ref, :memory_info)
   end
@@ -157,7 +157,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.list(MyCache)
 
   """
-  @spec list(server_ref) :: [:ets.tid()]
+  @spec list(server_ref()) :: [:ets.tid()]
   def list(server_ref) do
     server_ref
     |> get_meta_tab()
@@ -172,7 +172,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.newer(MyCache)
 
   """
-  @spec newer(server_ref) :: :ets.tid()
+  @spec newer(server_ref()) :: :ets.tid()
   def newer(server_ref) do
     server_ref
     |> get_meta_tab()
@@ -188,7 +188,7 @@ defmodule Nebulex.Adapters.Local.Generation do
       Nebulex.Adapters.Local.Generation.server(MyCache)
 
   """
-  @spec server(server_ref) :: pid
+  @spec server(server_ref()) :: pid
   def server(server_ref) do
     server_ref
     |> get_meta_tab()
@@ -198,7 +198,7 @@ defmodule Nebulex.Adapters.Local.Generation do
   @doc """
   A convenience function for retrieving the state.
   """
-  @spec get_state(server_ref) :: t()
+  @spec get_state(server_ref()) :: t()
   def get_state(server_ref) do
     server_ref
     |> server()

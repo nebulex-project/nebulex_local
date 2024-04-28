@@ -9,7 +9,7 @@ defmodule NebulexAdaptersLocal.MixProject do
     [
       app: :nebulex_local,
       version: @version,
-      elixir: "~> 1.10",
+      elixir: "~> 1.12",
       aliases: aliases(),
       deps: deps(),
 
@@ -42,8 +42,9 @@ defmodule NebulexAdaptersLocal.MixProject do
   defp deps do
     [
       nebulex_dep(),
-      {:shards, "~> 1.1", optional: true},
+      {:nimble_options, "~> 0.5 or ~> 1.0"},
       {:telemetry, "~> 0.4 or ~> 1.0", optional: true},
+      {:shards, "~> 1.1", optional: true},
 
       # Test & Code Analysis
       {:excoveralls, "~> 0.18", only: :test},
@@ -59,13 +60,13 @@ defmodule NebulexAdaptersLocal.MixProject do
       {:benchee_html, "~> 1.0", only: [:dev, :test]},
 
       # Docs
-      {:ex_doc, "~> 0.31", only: [:dev, :test], runtime: false}
+      {:ex_doc, "~> 0.32", only: [:dev, :test], runtime: false}
     ]
   end
 
   defp nebulex_dep do
     if path = System.get_env("NEBULEX_PATH") do
-      {:nebulex, github: "cabol/nebulex", branch: "v3.0.0-dev", path: path}
+      {:nebulex, path: path}
     else
       {:nebulex, github: "cabol/nebulex", branch: "v3.0.0-dev"}
     end
