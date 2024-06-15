@@ -642,10 +642,6 @@ defmodule Nebulex.Adapters.Local do
   @impl true
   def stream(adapter_meta, query_meta, opts)
 
-  def stream(_adapter_meta, %{query: {:in, []}}, _opts) do
-    {:ok, Stream.map([], & &1)}
-  end
-
   def stream(%{meta_tab: meta_tab, backend: backend}, %{query: {:in, keys}, select: select}, opts) do
     keys
     |> Stream.chunk_every(Keyword.fetch!(opts, :max_entries))

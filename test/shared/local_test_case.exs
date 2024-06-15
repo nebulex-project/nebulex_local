@@ -245,6 +245,10 @@ defmodule Nebulex.Adapters.LocalTest do
         assert {:ok, stream} = cache.stream([in: [1, 2, 3, 4, 5]], max_entries: 2)
         assert Enum.to_list(stream) |> Enum.sort() == Enum.sort(entries)
       end
+
+      test "stream returns empty when is evaluated", %{cache: cache} do
+        assert cache.stream!(in: []) |> Enum.to_list() == []
+      end
     end
 
     describe "older generation hitted on" do
