@@ -1,7 +1,7 @@
 defmodule NebulexAdaptersLocal.MixProject do
   use Mix.Project
 
-  @source_url "https://github.com/elixir-nebulex/nebulex_local"
+  @source_url "https://github.com/nebulex-project/nebulex_local"
   @version "3.0.0-dev"
   # @nbx_vsn "3.0.0"
 

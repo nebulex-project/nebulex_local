@@ -430,27 +430,6 @@ defmodule Nebulex.Adapters.LocalTest do
       end
     end
 
-    describe "Persistence API" do
-      test "dump with compression", %{cache: cache, name: name} do
-        tmp = System.tmp_dir!()
-        path = "#{tmp}/#{name}"
-
-        try do
-          :ok = cache.put_all(foo: :bar)
-
-          assert cache.dump(path, compression: 0) == :ok
-          assert File.exists?(path)
-
-          _ = cache.delete_all!()
-
-          assert cache.load(path) == :ok
-          assert cache.get_all!() |> Map.new() == %{foo: :bar}
-        after
-          File.rm_rf!(path)
-        end
-      end
-    end
-
     describe "generation" do
       test "created with unexpired entries", %{cache: cache, name: name} do
         assert cache.put("foo", "bar") == :ok

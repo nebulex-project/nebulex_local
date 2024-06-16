@@ -1,10 +1,10 @@
-# Nebulex.Adapters.Local
+# Nebulex Local
 > A generational local cache adapter for [Nebulex][Nebulex].
 
 [Nebulex]: https://github.com/cabol/nebulex
 
-![CI](https://github.com/elixir-nebulex/nebulex_local/workflows/CI/badge.svg)
-[![Coverage Status](https://coveralls.io/repos/github/elixir-nebulex/nebulex_local/badge.svg?branch=main)](https://coveralls.io/github/elixir-nebulex/nebulex_local?branch=main)
+![CI](https://github.com/nebulex-project/nebulex_local/workflows/CI/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/nebulex-project/nebulex_local/badge.svg?branch=main)](https://coveralls.io/github/nebulex-project/nebulex_local?branch=main)
 [![Hex Version](https://img.shields.io/hexpm/v/nebulex_local.svg)](https://hex.pm/packages/nebulex_local)
 [![Docs](https://img.shields.io/badge/docs-hexpm-blue.svg)](https://hexdocs.pm/nebulex_local)
 
@@ -139,9 +139,9 @@ for more information.
 
 Contributions to Nebulex are very welcome and appreciated!
 
-Use the [issue tracker](https://github.com/elixir-nebulex/nebulex_local/issues)
+Use the [issue tracker](https://github.com/nebulex-project/nebulex_local/issues)
 for bug reports or feature requests. Open a
-[pull request](https://github.com/elixir-nebulex/nebulex_local/pulls)
+[pull request](https://github.com/nebulex-project/nebulex_local/pulls)
 when you are ready to contribute.
 
 When submitting a pull request you should not update the
@@ -153,6 +153,6 @@ all checks run successfully.
 
 ## Copyright and License
 
-Copyright (c) 2023 Carlos Andres Bolaños R.A.
+Copyright (c) 2024 Carlos Andres Bolaños R.A.
 
-`Nebulex.Adapters.Local` source code is licensed under the [MIT License](LICENSE).
+`nebulex_local` source code is licensed under the [MIT License](LICENSE).

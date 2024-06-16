@@ -198,14 +198,6 @@ defmodule Nebulex.Adapters.Local do
 
   > You can use the `Ex2ms` or `MatchSpec` library to build queries easier.
 
-  ### Predefined queries
-
-    * `:expired` - Matches all expired entries.
-
-  Querying expired entries:
-
-      iex> {:ok, expired} = MyCache.get_all(query: :expired)
-
   ## Transaction API
 
   This adapter inherits the default implementation provided by
@@ -238,7 +230,6 @@ defmodule Nebulex.Adapters.Local do
   @behaviour Nebulex.Adapter
   @behaviour Nebulex.Adapter.KV
   @behaviour Nebulex.Adapter.Queryable
-  @behaviour Nebulex.Adapter.Persistence
 
   # Inherit default transaction implementation
   use Nebulex.Adapter.Transaction
@@ -688,72 +679,6 @@ defmodule Nebulex.Adapters.Local do
     )
   end
 
-  ## Nebulex.Adapter.Persistence
-
-  @impl true
-  def dump(%{cache: cache}, path, opts) do
-    with_file(cache, path, [:write], fn io_dev ->
-      with {:ok, stream} <- cache.stream() do
-        stream
-        |> Stream.chunk_every(Keyword.get(opts, :entries_per_line, 10))
-        |> Enum.each(fn chunk ->
-          bin =
-            chunk
-            |> :erlang.term_to_binary(get_compression(opts))
-            |> Base.encode64()
-
-          :ok = IO.puts(io_dev, bin)
-        end)
-      end
-    end)
-  end
-
-  # sobelow_skip ["Misc.BinToTerm"]
-  @impl true
-  def load(%{cache: cache}, path, opts) do
-    with_file(cache, path, [:read], fn io_dev ->
-      io_dev
-      |> IO.stream(:line)
-      |> Stream.map(&String.trim/1)
-      |> Enum.each(fn line ->
-        entries =
-          line
-          |> Base.decode64!()
-          |> :erlang.binary_to_term([:safe])
-
-        cache.put_all(entries, opts)
-      end)
-    end)
-  end
-
-  # sobelow_skip ["Traversal.FileModule"]
-  defp with_file(cache, path, modes, function) do
-    case File.open(path, modes) do
-      {:ok, io_device} ->
-        try do
-          function.(io_device)
-        after
-          :ok = File.close(io_device)
-        end
-
-      {:error, reason} ->
-        {:current_stacktrace, stacktrace} = Process.info(self(), :current_stacktrace)
-        reason = %File.Error{reason: reason, action: "open", path: path}
-
-        wrap_error(Nebulex.Error, reason: reason, stacktrace: stacktrace, cache: cache)
-    end
-  end
-
-  defp get_compression(opts) do
-    case Keyword.get(opts, :compression) do
-      value when is_integer(value) and value >= 0 and value < 10 ->
-        [compressed: value]
-
-      _ ->
-        [:compressed]
-    end
-  end
-
   ## Nebulex.Adapter.Info
 
   @impl true
@@ -1092,7 +1017,6 @@ defmodule Nebulex.Adapters.Local do
         invalid query, expected one of:
 
         - `nil` - match all entries
-        - `:expired` - match only expired entries (available for delete_all)
         - `:ets.match_spec()` - ETS match spec
 
         but got:
