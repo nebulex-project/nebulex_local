@@ -76,7 +76,7 @@ defmodule Nebulex.Adapters.Local.InfoTest do
   ## Provate functions
 
   defp server_info do
-    {:ok, adapter_meta} = Adapter.lookup_meta(Cache)
+    adapter_meta = Adapter.lookup_meta(Cache)
 
     %{
       nbx_version: Nebulex.vsn(),

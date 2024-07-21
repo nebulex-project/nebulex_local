@@ -52,7 +52,7 @@ defmodule NebulexAdaptersLocal.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
-      {:mimic, "~> 1.7", only: :test},
+      {:mimic, "~> 1.9", only: :test},
       {:ex2ms, "~> 1.6", only: :test},
 
       # Benchmark Test

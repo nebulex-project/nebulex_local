@@ -9,7 +9,7 @@ defmodule Nebulex.Adapters.LocalErrorTest do
   setup do
     Nebulex.Cache.Registry
     |> expect(:lookup, fn _ ->
-      {:ok, %{adapter: Nebulex.FakeAdapter, telemetry: true, telemetry_prefix: [:nebulex, :test]}}
+      %{adapter: Nebulex.FakeAdapter, telemetry: true, telemetry_prefix: [:nebulex, :test]}
     end)
 
     {:ok, cache: Nebulex.Adapters.Local.TestCache, name: :local_error_cache}
