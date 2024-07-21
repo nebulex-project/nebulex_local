@@ -16,24 +16,22 @@ defmodule Nebulex.Adapters.LocalTest do
         assert {:error, {%NimbleOptions.ValidationError{message: msg}, _}} =
                  cache.start_link(name: :invalid_backend, backend: :xyz)
 
-        assert Regex.match?(~r/invalid value for :backend option/, msg)
+        assert Regex.match?(~r|invalid value for :backend option|, msg)
       end
 
       test "because cache is stopped", %{cache: cache, name: name} do
         :ok = cache.stop()
 
-        assert cache.put(1, 13) ==
-                 {:error,
-                  %Nebulex.Error{
-                    opts: [cache: name],
-                    reason: :registry_lookup_error
-                  }}
+        ops = [
+          fn -> cache.put(1, 13) end,
+          fn -> cache.put!(1, 13) end,
+          fn -> cache.get!(1) end,
+          fn -> cache.delete!(1) end
+        ]
 
-        msg = ~r"could not lookup Nebulex cache"
-
-        assert_raise Nebulex.Error, msg, fn -> cache.put!(1, 13) end
-        assert_raise Nebulex.Error, msg, fn -> cache.get!(1) end
-        assert_raise Nebulex.Error, msg, fn -> cache.delete!(1) end
+        for fun <- ops do
+          assert_raise Nebulex.CacheNotFoundError, ~r/unable to find cache: #{inspect(name)}/, fun
+        end
       end
     end
 
@@ -63,7 +61,7 @@ defmodule Nebulex.Adapters.LocalTest do
       test "get_and_update fails because cache is not started", %{cache: cache} do
         :ok = cache.stop()
 
-        assert_raise Nebulex.Error, fn ->
+        assert_raise Nebulex.CacheNotFoundError, ~r/unable to find cache/, fn ->
           assert cache.get_and_update!(1, fn _ -> :pop end)
         end
       end
@@ -260,7 +258,7 @@ defmodule Nebulex.Adapters.LocalTest do
         refute get_from_new(cache, name, "foo")
         assert get_from_old(cache, name, "foo") == "bar"
 
-        :ok = cache.put("foo", "bar bar")
+        :ok = cache.put("foo", "bar bar", ttl: 500, keep_ttl: true)
 
         assert get_from_new(cache, name, "foo") == "bar bar"
         refute get_from_old(cache, name, "foo")
@@ -522,12 +520,10 @@ defmodule Nebulex.Adapters.LocalTest do
     end
 
     defp get_from(gen, name, key) do
-      Adapter.with_meta(name, fn %{backend: backend} ->
-        case backend.lookup(gen, key) do
-          [] -> nil
-          [{_, ^key, val, _, _}] -> val
-        end
-      end)
+      case Adapter.lookup_meta(name).backend.lookup(gen, key) do
+        [] -> nil
+        [{_, ^key, val, _, _}] -> val
+      end
     end
 
     defp get_all_or_stream(cache, action, query, opts \\ [])

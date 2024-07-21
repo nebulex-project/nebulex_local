@@ -48,8 +48,6 @@ defmodule Nebulex.Adapters.Local.Generation do
 
   use GenServer
 
-  import Nebulex.Utils
-
   alias Nebulex.Adapter
   alias Nebulex.Adapters.Common.Info.Stats
   alias Nebulex.Adapters.Local.{Backend, Metadata, Options}
@@ -212,7 +210,9 @@ defmodule Nebulex.Adapters.Local.Generation do
   end
 
   defp get_meta_tab(server_ref) when is_atom(server_ref) or is_pid(server_ref) do
-    unwrap_or_raise Adapter.with_meta(server_ref, & &1.meta_tab)
+    server_ref
+    |> Adapter.lookup_meta()
+    |> Map.fetch!(:meta_tab)
   end
 
   defp get_meta_tab(server_ref), do: server_ref

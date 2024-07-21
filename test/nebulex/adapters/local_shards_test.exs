@@ -14,9 +14,7 @@ defmodule Nebulex.Adapters.LocalWithShardsTest do
 
   describe "shards" do
     test "backend", %{name: name} do
-      Adapter.with_meta(name, fn meta ->
-        assert meta.backend == :shards
-      end)
+      assert Adapter.lookup_meta(name).backend == :shards
     end
 
     test "custom partitions" do

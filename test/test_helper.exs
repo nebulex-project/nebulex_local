@@ -1,3 +1,11 @@
+# Mocks
+[
+  Mix.Project,
+  Nebulex.Cache.Registry,
+  Nebulex.Time
+]
+|> Enum.each(&Mimic.copy/1)
+
 # Nebulex dependency path
 nbx_dep_path = Mix.Project.deps_paths()[:nebulex]
 
@@ -17,14 +25,6 @@ for file <- File.ls!("test/shared"), not File.dir?("test/shared/" <> file) do
 end
 
 Code.require_file("support/test_cache.exs", __DIR__)
-
-# Mocks
-[
-  Mix.Project,
-  Nebulex.Cache.Registry,
-  Nebulex.Time
-]
-|> Enum.each(&Mimic.copy/1)
 
 # Enable sleep mock to avoid test delay due to the sleep function (TTL tests)
 :ok = Application.put_env(:nebulex, :sleep_mock, true)
