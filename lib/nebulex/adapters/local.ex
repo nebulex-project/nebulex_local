@@ -364,21 +364,21 @@ defmodule Nebulex.Adapters.Local do
   ## Nebulex.Adapter.KV
 
   @impl true
-  def fetch(adapter_meta, key, _opts) do
-    adapter_meta.meta_tab
+  def fetch(%{name: name, meta_tab: meta_tab, backend: backend}, key, _opts) do
+    meta_tab
     |> list_gen()
-    |> do_fetch(key, adapter_meta)
+    |> do_fetch(name, backend, key)
     |> return(:value)
   end
 
-  defp do_fetch([newer], key, adapter_meta) do
-    fetch_entry(newer, key, adapter_meta)
+  defp do_fetch([newer], name, backend, key) do
+    fetch_entry(name, backend, newer, key)
   end
 
-  defp do_fetch([newer, older], key, adapter_meta) do
-    with {:error, _} <- fetch_entry(newer, key, adapter_meta),
-         {:ok, cached} <- pop_entry(older, key, adapter_meta) do
-      true = adapter_meta.backend.insert(newer, cached)
+  defp do_fetch([newer, older], name, backend, key) do
+    with {:error, _} <- fetch_entry(name, backend, newer, key),
+         {:ok, cached} <- pop_entry(name, backend, older, key) do
+      true = backend.insert(newer, cached)
 
       {:ok, cached}
     end
@@ -440,11 +440,11 @@ defmodule Nebulex.Adapters.Local do
   end
 
   @impl true
-  def take(adapter_meta, key, _opts) do
-    adapter_meta.meta_tab
+  def take(%{name: name, meta_tab: meta_tab, backend: backend}, key, _opts) do
+    meta_tab
     |> list_gen()
     |> Enum.reduce_while(nil, fn gen, _acc ->
-      case pop_entry(gen, key, adapter_meta) do
+      case pop_entry(name, backend, gen, key) do
         {:ok, res} -> {:halt, return({:ok, res}, :value)}
         error -> {:cont, error}
       end
@@ -452,19 +452,22 @@ defmodule Nebulex.Adapters.Local do
   end
 
   @impl true
-  def update_counter(adapter_meta, key, amount, ttl, default, _opts) do
+  def update_counter(
+        %{name: name, meta_tab: meta_tab, backend: backend},
+        key,
+        amount,
+        ttl,
+        default,
+        _opts
+      ) do
     # Current time
     now = Time.now()
-
-    # Get needed metadata
-    meta_tab = adapter_meta.meta_tab
-    backend = adapter_meta.backend
 
     # Verify if the key has expired
     _ =
       meta_tab
       |> list_gen()
-      |> do_fetch(key, adapter_meta)
+      |> do_fetch(name, backend, key)
 
     # Run the counter operation
     meta_tab
@@ -486,8 +489,8 @@ defmodule Nebulex.Adapters.Local do
   end
 
   @impl true
-  def ttl(adapter_meta, key, _opts) do
-    with {:ok, res} <- adapter_meta.meta_tab |> list_gen() |> do_fetch(key, adapter_meta) do
+  def ttl(%{name: name, meta_tab: meta_tab, backend: backend}, key, _opts) do
+    with {:ok, res} <- meta_tab |> list_gen() |> do_fetch(name, backend, key) do
       {:ok, entry_ttl(res)}
     end
   end
@@ -715,19 +718,19 @@ defmodule Nebulex.Adapters.Local do
   ## Helpers
 
   # Inline common instructions
-  @compile {:inline, fetch_entry: 3, pop_entry: 3, list_gen: 1, newer_gen: 1, match_key: 2}
+  @compile {:inline, fetch_entry: 4, pop_entry: 4, list_gen: 1, newer_gen: 1, match_key: 2}
 
-  defmacrop backend_call(adapter_meta, fun, tab, key) do
+  defmacrop backend_call(name, backend, tab, fun, key) do
     quote do
-      case unquote(adapter_meta).backend.unquote(fun)(unquote(tab), unquote(key)) do
+      case unquote(backend).unquote(fun)(unquote(tab), unquote(key)) do
         [] ->
-          wrap_error(Nebulex.KeyError, key: unquote(key), cache: unquote(adapter_meta).name)
+          wrap_error(Nebulex.KeyError, key: unquote(key), cache: unquote(name))
 
         [entry(exp: :infinity) = entry] ->
           {:ok, entry}
 
         [entry() = entry] ->
-          validate_exp(entry, unquote(tab), unquote(adapter_meta))
+          validate_exp(entry, unquote(backend), unquote(tab), unquote(name))
 
         entries when is_list(entries) ->
           now = Time.now()
@@ -740,12 +743,12 @@ defmodule Nebulex.Adapters.Local do
     end
   end
 
-  defp fetch_entry(tab, key, adapter_meta) do
-    backend_call(adapter_meta, :lookup, tab, key)
+  defp fetch_entry(name, backend, tab, key) do
+    backend_call(name, backend, tab, :lookup, key)
   end
 
-  defp pop_entry(tab, key, adapter_meta) do
-    backend_call(adapter_meta, :take, tab, key)
+  defp pop_entry(name, backend, tab, key) do
+    backend_call(name, backend, tab, :take, key)
   end
 
   defp list_gen(meta_tab) do
@@ -758,11 +761,11 @@ defmodule Nebulex.Adapters.Local do
     |> hd()
   end
 
-  defp validate_exp(entry(key: key, exp: exp) = entry, tab, adapter_meta) do
+  defp validate_exp(entry(key: key, exp: exp) = entry, backend, tab, name) do
     if Time.now() >= exp do
-      true = adapter_meta.backend.delete(tab, key)
+      true = backend.delete(tab, key)
 
-      wrap_error(Nebulex.KeyError, key: key, cache: adapter_meta.name, reason: :expired)
+      wrap_error(Nebulex.KeyError, key: key, cache: name, reason: :expired)
     else
       {:ok, entry}
     end

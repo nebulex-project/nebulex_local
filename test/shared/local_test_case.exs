@@ -16,7 +16,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert {:error, {%NimbleOptions.ValidationError{message: msg}, _}} =
                  cache.start_link(name: :invalid_backend, backend: :xyz)
 
-        assert Regex.match?(~r/invalid value for :backend option/, msg)
+        assert Regex.match?(~r|invalid value for :backend option|, msg)
       end
 
       test "because cache is stopped", %{cache: cache, name: name} do
@@ -25,7 +25,7 @@ defmodule Nebulex.Adapters.LocalTest do
         assert cache.put(1, 13) ==
                  {:error,
                   %Nebulex.Error{
-                    opts: [cache: name],
+                    metadata: [cache: name],
                     reason: :registry_lookup_error
                   }}
 
