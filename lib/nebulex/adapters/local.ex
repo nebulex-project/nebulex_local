@@ -344,7 +344,6 @@ defmodule Nebulex.Adapters.Local do
 
     # Build adapter metadata
     adapter_meta = %{
-      cache: cache,
       name: opts[:name] || cache,
       telemetry: telemetry,
       telemetry_prefix: telemetry_prefix,
@@ -648,6 +647,7 @@ defmodule Nebulex.Adapters.Local do
       |> list_gen()
       |> Enum.reduce([], &(backend.select(&1, in_match_spec(chunk, select)) ++ &2))
     end)
+    |> Stream.flat_map(& &1)
     |> wrap_ok()
   end
 
@@ -680,7 +680,7 @@ defmodule Nebulex.Adapters.Local do
           {[], {result, generations}}
 
         {{elements, cont}, [_ | _] = generations} ->
-          {[elements], {backend.select(cont), generations}}
+          {elements, {backend.select(cont), generations}}
       end,
       & &1
     )
@@ -728,7 +728,7 @@ defmodule Nebulex.Adapters.Local do
     quote do
       case unquote(backend).unquote(fun)(unquote(tab), unquote(key)) do
         [] ->
-          wrap_error(Nebulex.KeyError, key: unquote(key), cache: unquote(name))
+          wrap_error Nebulex.KeyError, key: unquote(key), cache: unquote(name)
 
         [entry(exp: :infinity) = entry] ->
           {:ok, entry}
@@ -769,7 +769,7 @@ defmodule Nebulex.Adapters.Local do
     if Time.now() >= exp do
       true = backend.delete(tab, key)
 
-      wrap_error(Nebulex.KeyError, key: key, cache: name, reason: :expired)
+      wrap_error Nebulex.KeyError, key: key, cache: name, reason: :expired
     else
       {:ok, entry}
     end
